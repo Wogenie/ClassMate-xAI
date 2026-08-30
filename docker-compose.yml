@@ -1,0 +1,35 @@
+# ClassMateX — single-container deployment.
+# The backend serves the built frontend itself, so one service is all you need.
+#
+# Usage:
+#   copy .env.example backend/.env   (or set environment vars)
+#   docker compose up -d --build
+#
+# The named volume "cmx-data" keeps SQLite + Chroma (backend/data) persistent
+# across container rebuilds/restarts. DO NOT point CLASSMATE_DATA_DIR at a
+# non-persistent path in production.
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Optional: enable "Continue with Google" in the built frontend.
+        # Must match GOOGLE_CLIENT_ID in the environment below.
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+    image: classmatex:latest
+    container_name: classmatex
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      CLASSMATE_SECRET_KEY: ${CLASSMATE_SECRET_KEY:?set a strong CLASSMATE_SECRET_KEY}
+      CLASSMATE_DATA_DIR: /app/backend/data
+      CLASSMATE_PORT: "8000"
+      CLASSMATE_LLM_MODEL: ${CLASSMATE_LLM_MODEL:-openai/gpt-oss-20b}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+    volumes:
+      - cmx-data:/app/backend/data
+
+volumes:
+  cmx-data:

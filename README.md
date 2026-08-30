@@ -113,6 +113,27 @@ scripts\run_frontend.bat          # Vite dev server on :5173
 
 No Docker required. Python 3.10+ and Node 18+ are the only prerequisites.
 
+## Deploy with Docker (single container)
+
+This is a **single-container** deployment: the Dockerfile builds the React app
+and the Python backend **serves the built frontend itself** on the same origin.
+One container, one process (`uvicorn`), one port — no separate frontend/backend.
+
+```bash
+cp backend/.env.example backend/.env   # then edit CLASSMATE_SECRET_KEY
+export CLASSMATE_SECRET_KEY="$(python -c 'import secrets;print(secrets.token_hex(32))')"
+docker compose up -d --build
+```
+
+The backend runs on `http://localhost:8000` and serves both the UI and the
+`/api` + `/docs` endpoints. A named volume (`cmx-data`) keeps SQLite + Chroma
+persistent across restarts.
+
+The app needs an **always-on** process because it runs a Telegram bot and
+background schedulers — it is **not** suited to serverless (e.g. Vercel
+serverless functions). Use a long-running host (Render, Railway, Fly.io, a VPS)
+and point `CLASSMATE_DATA_DIR` at a persistent disk/volume.
+
 ## Editing prompts without touching code
 
 Edit `backend/app/prompts/master_agent.txt` (assistant behavior) or

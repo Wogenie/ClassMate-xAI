@@ -6,6 +6,12 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.environ.get("CLASSMATE_DATA_DIR", BACKEND_DIR / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+# Built frontend (npm run build output). When present, the backend serves it
+# on the same origin so production needs no CORS / no separate static host.
+FRONTEND_DIST = Path(
+    os.environ.get("CLASSMATE_FRONTEND_DIST", BACKEND_DIR / ".." / "frontend" / "dist")
+).resolve()
+
 # Load a backend/.env if present (python-dotenv is optional at import time).
 try:
     from dotenv import load_dotenv

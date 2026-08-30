@@ -8,6 +8,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from . import config, looputil, prompt_loader
 from .database import init_db
@@ -79,3 +81,27 @@ _include(preferences.router)
 @app.get("/api/health")
 def health():
     return {"status": "ok", "app": "ClassMateX"}
+
+
+# ---- Production static hosting of the built SPA (same origin) ----
+# When frontend/dist exists, serve it. The SPA catch-all returns index.html for
+# any non-API path so client-side routing works on refresh/deep links.
+_HAS_FRONTEND = config.FRONTEND_DIST.is_dir()
+if _HAS_FRONTEND:
+    assets_dir = config.FRONTEND_DIST / "assets"
+    if assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa(full_path: str):
+        if full_path.startswith("api"):  # safety net; API routes resolve first
+            raise Exception("unreachable")
+        candidate = config.FRONTEND_DIST / full_path
+        if full_path and candidate.is_file() and candidate.is_relative_to(
+            config.FRONTEND_DIST
+        ):
+            return FileResponse(candidate)
+        index = config.FRONTEND_DIST / "index.html"
+        if index.is_file():
+            return FileResponse(index)
+        raise Exception("frontend not built")

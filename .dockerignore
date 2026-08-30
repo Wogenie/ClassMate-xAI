@@ -1,0 +1,30 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.pyc
+backend/.venv/
+backend/data/
+backend/.env
+*.session
+*.log
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Local spec/notes at repo root only (not needed in the image)
+/txt 2.txt
+/txt 3.txt
+/assignment prompt.txt
+/App Summery.txt
+/auth.txt
+/week_agent_project.ipynb
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
