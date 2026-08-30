@@ -24,9 +24,10 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=400, detail="Username already taken")
     email = body.email.strip().lower()
-    if email:
-        if db.query(User).filter_by(email=email).first():
-            raise HTTPException(status_code=400, detail="Email already in use")
+    if not email or "@" not in email or "." not in email.split("@")[-1]:
+        raise HTTPException(status_code=400, detail="A valid email is required")
+    if db.query(User).filter_by(email=email).first():
+        raise HTTPException(status_code=400, detail="Email already in use")
     user = User(
         username=body.username.strip(),
         email=email or None,

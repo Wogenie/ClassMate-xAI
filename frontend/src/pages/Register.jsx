@@ -45,21 +45,25 @@ export default function Register() {
       <div className="w-full max-w-sm">
         <h1 className="text-2xl font-bold mb-6 text-center">Create your ClassMateX account</h1>
         <div className="card space-y-4">
-          <GoogleButton onSuccess={googleLogin} onError={(e) => setError(errText(e))} />
+          <div className="text-center">
+            <p className="text-sm text-slate-300 font-medium mb-1">Sign up with Google</p>
+            <p className="text-xs text-slate-500 mb-3">Your Google email is verified as part of signup.</p>
+            <GoogleButton onSuccess={googleLogin} onError={(e) => setError(errText(e))} label="Continue with Google" />
+          </div>
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <span className="h-px flex-1 bg-slate-700" />
-            <span>or with username</span>
+            <span>or use email &amp; password</span>
             <span className="h-px flex-1 bg-slate-700" />
           </div>
           <form onSubmit={submit} className="space-y-4">
             {error && <div className="text-sm text-rose-400 bg-rose-500/10 rounded-xl px-3 py-2">{error}</div>}
             <div>
-              <label className="label">Username</label>
-              <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} minLength={3} required />
+              <label className="label">Email</label>
+              <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />
             </div>
             <div>
-              <label className="label">Email (optional, used to sign in later)</label>
-              <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+              <label className="label">Username</label>
+              <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} minLength={3} required />
             </div>
             <div>
               <label className="label">Password (min 6)</label>
