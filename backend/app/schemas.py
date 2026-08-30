@@ -7,11 +7,13 @@ from pydantic import BaseModel, Field
 # ---------- Auth ----------
 class RegisterRequest(BaseModel):
     username: str = Field(min_length=3, max_length=80)
+    email: str = ""
     password: str = Field(min_length=6, max_length=128)
 
 
 class LoginRequest(BaseModel):
-    username: str
+    username: str = ""  # kept for backward-compat; prefer email
+    email: str = ""
     password: str
 
 

@@ -23,8 +23,13 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
     existing = db.query(User).filter_by(username=body.username).first()
     if existing:
         raise HTTPException(status_code=400, detail="Username already taken")
+    email = body.email.strip().lower()
+    if email:
+        if db.query(User).filter_by(email=email).first():
+            raise HTTPException(status_code=400, detail="Email already in use")
     user = User(
         username=body.username.strip(),
+        email=email or None,
         password_hash=security.hash_password(body.password),
     )
     db.add(user)
@@ -35,9 +40,17 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=TokenResponse)
 def login(body: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter_by(username=body.username.strip()).first()
+    user = None
+    identifier = (body.email or body.username or "").strip()
+    if not identifier:
+        raise HTTPException(status_code=401, detail="Email or username is required")
+    # Resolve by email when an @ is present, otherwise by username.
+    if "@" in identifier:
+        user = db.query(User).filter_by(email=identifier.lower()).first()
+    if user is None:
+        user = db.query(User).filter_by(username=identifier).first()
     if not user or not security.verify_password(body.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Invalid username or password")
+        raise HTTPException(status_code=401, detail="Invalid email/username or password")
     return _token_for(user)
 
 

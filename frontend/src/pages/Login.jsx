@@ -6,7 +6,7 @@ import GoogleButton from '../components/GoogleButton.jsx'
 
 export default function Login() {
   const nav = useNavigate()
-  const [username, setUsername] = useState('')
+  const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -25,7 +25,7 @@ export default function Login() {
     setBusy(true)
     setError('')
     try {
-      const { data } = await api.post('/auth/login', { username, password })
+      const { data } = await api.post('/auth/login', { email: identifier, username: identifier, password })
       afterAuth(data)
     } catch (e2) {
       setError(errText(e2))
@@ -59,8 +59,16 @@ export default function Login() {
           <form onSubmit={submit} className="space-y-4">
             {error && <div className="text-sm text-rose-400 bg-rose-500/10 rounded-xl px-3 py-2">{error}</div>}
             <div>
-              <label className="label">Username</label>
-              <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} required />
+              <label className="label">Email or username</label>
+              <input
+                className="input"
+                type="text"
+                inputMode="email"
+                autoComplete="username"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                required
+              />
             </div>
             <div>
               <label className="label">Password</label>

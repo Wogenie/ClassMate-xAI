@@ -7,6 +7,7 @@ import GoogleButton from '../components/GoogleButton.jsx'
 export default function Register() {
   const nav = useNavigate()
   const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -25,7 +26,7 @@ export default function Register() {
     setBusy(true)
     setError('')
     try {
-      const { data } = await api.post('/auth/register', { username, password })
+      const { data } = await api.post('/auth/register', { username, email, password })
       afterAuth(data)
     } catch (e2) {
       setError(errText(e2))
@@ -55,6 +56,10 @@ export default function Register() {
             <div>
               <label className="label">Username</label>
               <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} minLength={3} required />
+            </div>
+            <div>
+              <label className="label">Email (optional, used to sign in later)</label>
+              <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
             </div>
             <div>
               <label className="label">Password (min 6)</label>
