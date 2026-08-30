@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Theme system — dark/light driven by CSS variables + a `.dark` class on <html>.
+  The React app toggles the class; the preference is persisted in localStorage
+  and defaulted from the OS `prefers-color-scheme`.
+
+  Dark (default):
+    ink    page background   #0b0f1a
+    panel  cards             #111725
+    edge   borders/hovers    #1e2740
+  Light:
+    ink    page background   gray-50
+    panel  cards             white
+    edge   borders/hovers    slate-200
+*/
+:root,
+html:not(.light):not(.dark) {
+  color-scheme: dark;
+  --color-ink: 11 15 26;
+  --color-panel: 17 23 37;
+  --color-edge: 30 39 64;
+  --color-text: 226 232 240;   /* slate-200 */
+  --color-text-dim: 148 163 184; /* slate-400 */
+  --color-muted: 100 116 139;    /* slate-500 */
+}
+
+html.dark {
+  color-scheme: dark;
+  --color-ink: 11 15 26;
+  --color-panel: 17 23 37;
+  --color-edge: 30 39 64;
+  --color-text: 226 232 240;
+  --color-text-dim: 148 163 184;
+  --color-muted: 100 116 139;
+}
+
+html.light {
+  color-scheme: light;
+  --color-ink: 249 250 251;      /* gray-50 */
+  --color-panel: 255 255 255;    /* white */
+  --color-edge: 226 232 240;     /* slate-200 */
+  --color-text: 15 23 42;        /* slate-900 */
+  --color-text-dim: 51 65 85;    /* slate-700 */
+  --color-muted: 71 85 105;      /* slate-600 */
+}
+
+/*
+  In light mode the Tailwind slate text utilities otherwise stay light-gray
+  (they're static colors). Remap the grays the app actually uses so text is
+  dark enough to read clearly on white.
+*/
+html.light .text-slate-100,
+html.light .text-slate-200,
+html.light .text-slate-300 { color: rgb(15 23 42); }
+html.light .text-slate-400,
+html.light .text-slate-500,
+html.light .text-slate-600 { color: rgb(51 65 85); }
+html.light .hover\:text-slate-200:hover { color: rgb(15 23 42); }
+
+body {
+  @apply bg-ink antialiased;
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: rgb(var(--color-text));
+}
+
+.card { @apply bg-panel border border-edge rounded-2xl p-5; }
+.btn { @apply px-4 py-2 rounded-xl font-medium transition disabled:opacity-50; }
+.btn-primary { @apply btn bg-indigo-500 hover:bg-indigo-400 text-white; }
+.btn-ghost { @apply btn bg-edge/60 hover:bg-edge; }
+.btn-social { @apply btn bg-white text-slate-800 hover:bg-slate-100 border border-slate-300; }
+.input { @apply w-full px-3 py-2 rounded-xl bg-ink border border-edge outline-none focus:border-indigo-500; }
+.label { @apply block text-xs uppercase tracking-wider mb-1.5; color: rgb(var(--color-text-dim)); }
+.badge { @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { @apply bg-edge rounded-full; }
+
+.text-dim { color: rgb(var(--color-text-dim)); }
+.text-muted { color: rgb(var(--color-muted)); }

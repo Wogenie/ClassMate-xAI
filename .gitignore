@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+backend/.venv/
+backend/data/
+backend/.env
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Telethon sessions (contain credentials)
+*.session
+
+# Local spec / notes files at repo root (kept out of the repo — "code only")
+/txt 2.txt
+/txt 3.txt
+/assignment prompt.txt
+/App Summery.txt
+/auth.txt
+/week_agent_project.ipynb
+
+# Runtime log files
+*.log
+scripts/_cmx_*.log
+scripts/_cmx_*.err.log
