@@ -134,6 +134,14 @@ background schedulers — it is **not** suited to serverless (e.g. Vercel
 serverless functions). Use a long-running host (Render, Railway, Fly.io, a VPS)
 and point `CLASSMATE_DATA_DIR` at a persistent disk/volume.
 
+### Deploy to Render (one click)
+
+A Blueprint (`render.yaml`) is included. On Render: **New + → Blueprint**, point
+it at this repo. It builds the same Dockerfile, mounts a 1 GB persistent disk at
+`/app/backend/data`, and sets the health check to `/api/health`. Set
+`CLASSMATE_SECRET_KEY` (and optionally `GOOGLE_CLIENT_ID` /
+`VITE_GOOGLE_CLIENT_ID`) in the dashboard.
+
 ## Editing prompts without touching code
 
 Edit `backend/app/prompts/master_agent.txt` (assistant behavior) or

@@ -82,7 +82,7 @@ export default function Layout() {
           <div className="font-bold text-slate-100 leading-none">ClassMateX</div>
           <div className="text-[11px] text-slate-400 mt-1 truncate">your digital classmate</div>
         </div>
-        <button onClick={closeDrawer} title="Close menu" className="ml-auto p-1.5 rounded-lg hover:bg-edge/50 lg:hidden">
+        <button onClick={closeDrawer} title="Close menu" className="ml-auto p-1.5 rounded-lg hover:bg-edge/50 sm:hidden">
           <X size={18} />
         </button>
       </div>
@@ -150,19 +150,19 @@ export default function Layout() {
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Desktop sidebar (hidden on small screens) */}
-      <aside className="hidden lg:flex w-64 shrink-0 border-r border-edge bg-panel/50 flex-col h-full overflow-y-auto">
+      <aside className="hidden sm:flex w-64 shrink-0 border-r border-edge bg-panel/50 flex-col h-full overflow-y-auto">
         {sidebarContent}
       </aside>
 
       {/* Mobile drawer + overlay */}
       <div
         onClick={closeDrawer}
-        className={`fixed inset-0 z-40 bg-black/60 transition-opacity lg:hidden ${
+        className={`fixed inset-0 z-40 bg-black/60 transition-opacity sm:hidden ${
           drawerOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
       />
       <aside
-        className={`fixed z-50 inset-y-0 left-0 w-72 max-w-[85vw] bg-panel border-r border-edge flex flex-col overflow-y-auto transform transition-transform duration-200 lg:hidden ${
+        className={`fixed z-50 inset-y-0 left-0 w-72 max-w-[85vw] bg-panel border-r border-edge flex flex-col overflow-y-auto transform transition-transform duration-200 sm:hidden ${
           drawerOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -171,15 +171,15 @@ export default function Layout() {
 
       <div className="flex-1 min-w-0 flex flex-col h-full">
         {/* Mobile top bar */}
-        <header className="h-14 shrink-0 border-b border-edge flex items-center gap-2 px-4 lg:justify-end sticky top-0 bg-ink/90 backdrop-blur z-10 lg:px-6">
+        <header className="h-14 shrink-0 border-b border-edge flex items-center gap-2 px-4 sm:justify-end sticky top-0 bg-ink/90 backdrop-blur z-10 sm:px-6">
           <button
             onClick={() => setDrawerOpen(true)}
             title="Open menu"
-            className="p-2 rounded-lg hover:bg-edge/50 transition lg:hidden"
+            className="p-2 rounded-lg hover:bg-edge/50 transition sm:hidden"
           >
             <Menu size={20} />
           </button>
-          <span className="font-bold lg:hidden mr-auto truncate">ClassMateX</span>
+          <span className="font-bold sm:hidden mr-auto truncate">ClassMateX</span>
           <button
             onClick={toggleTheme}
             title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}

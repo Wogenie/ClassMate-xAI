@@ -50,6 +50,12 @@ export default function Login() {
           <p className="text-sm text-slate-400">Never ask “what did we learn today?” again.</p>
         </div>
         <div className="card space-y-4">
+          <GoogleButton onSuccess={googleLogin} onError={(e) => setError(errText(e))} />
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <span className="h-px flex-1 bg-slate-700" />
+            <span>or sign in with username</span>
+            <span className="h-px flex-1 bg-slate-700" />
+          </div>
           <form onSubmit={submit} className="space-y-4">
             {error && <div className="text-sm text-rose-400 bg-rose-500/10 rounded-xl px-3 py-2">{error}</div>}
             <div>
@@ -71,12 +77,6 @@ export default function Login() {
             <button className="btn-primary w-full" disabled={busy}>
               <LogIn size={16} className="inline mr-1" /> {busy ? 'Signing in…' : 'Sign in'}
             </button>
-            <div className="flex items-center gap-2 text-xs text-slate-500">
-              <span className="h-px flex-1 bg-slate-700" />
-              <span>or sign in with Google</span>
-              <span className="h-px flex-1 bg-slate-700" />
-            </div>
-            <GoogleButton onSuccess={googleLogin} onError={(e) => setError(errText(e))} />
           </form>
           <p className="text-sm text-slate-400 text-center">
             New here?{' '}

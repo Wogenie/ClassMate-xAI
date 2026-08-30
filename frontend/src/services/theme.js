@@ -3,11 +3,7 @@ const STORAGE_KEY = 'cm_theme'
 export function getInitialTheme() {
   const stored = localStorage.getItem(STORAGE_KEY)
   if (stored === 'dark' || stored === 'light') return stored
-  const prefersDark =
-    typeof window !== 'undefined' &&
-    window.matchMedia &&
-    window.matchMedia('(prefers-color-scheme: dark)').matches
-  return prefersDark ? 'dark' : 'light'
+  return 'dark'
 }
 
 export function applyTheme(theme) {

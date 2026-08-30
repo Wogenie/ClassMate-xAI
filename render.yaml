@@ -1,0 +1,27 @@
+# Render blueprint for a single always-on container.
+# The Docker image builds the frontend and the backend serves it on one origin.
+# This gives you one URL — no separate API host needed.
+#
+# Usage: on Render, "New + → Blueprint", point it at this repo, or import render.yaml.
+# It builds the Dockerfile and mounts a persistent disk at /app/backend/data
+# so SQLite + Chroma survive restarts.
+services:
+  - type: web
+    name: classmate-x
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: CLASSMATE_SECRET_KEY
+        sync: false # set it manually in the dashboard
+      - key: CLASSMATE_LLM_MODEL
+        value: openai/gpt-oss-20b
+      - key: GOOGLE_CLIENT_ID
+        sync: false # optional, for "Continue with Google"
+      - key: VITE_GOOGLE_CLIENT_ID
+        sync: false # optional, must match GOOGLE_CLIENT_ID
+    disk:
+      name: classmate-data
+      mountPath: /app/backend/data
+      sizeGB: 1
+    healthCheckPath: /api/health
