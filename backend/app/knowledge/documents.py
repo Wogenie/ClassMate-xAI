@@ -21,26 +21,35 @@ def read_file(path: str) -> str:
 def _read_pdf(path: str) -> str:
     from pypdf import PdfReader
 
-    reader = PdfReader(path)
-    return "\n\n".join(p.extract_text() or "" for p in reader.pages)
+    try:
+        reader = PdfReader(path)
+        return "\n\n".join(p.extract_text() or "" for p in reader.pages)
+    except Exception:
+        return ""
 
 
 def _read_docx(path: str) -> str:
     import docx2txt
 
-    return docx2txt.process(path) or ""
+    try:
+        return docx2txt.process(path) or ""
+    except Exception:
+        return ""
 
 
 def _read_pptx(path: str) -> str:
     from pptx import Presentation
 
-    prs = Presentation(path)
-    parts = []
-    for slide in prs.slides:
-        for shape in slide.shapes:
-            if shape.has_text_frame:
-                parts.append(shape.text_frame.text)
-    return "\n".join(p for p in parts if p)
+    try:
+        prs = Presentation(path)
+        parts = []
+        for slide in prs.slides:
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    parts.append(shape.text_frame.text)
+        return "\n".join(p for p in parts if p)
+    except Exception:
+        return ""
 
 
 def _read_image(path: str) -> str:

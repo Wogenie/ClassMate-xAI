@@ -32,3 +32,12 @@ Thumbs.db
 *.log
 scripts/_cmx_*.log
 scripts/_cmx_*.err.log
+
+# Runtime log / build / pip output (txt variants produced by the run scripts)
+backend/*_out.txt
+backend/*_err.txt
+backend/pip_*.txt
+backend/runner_log.txt
+frontend/vite_build_*.txt
+frontend/*_out.txt
+frontend/*_err.txt

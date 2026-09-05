@@ -7,7 +7,7 @@
 # so SQLite + Chroma survive restarts.
 services:
   - type: web
-    name: classmate-x
+    name: classmate-xai
     runtime: docker
     plan: starter
     dockerfilePath: ./Dockerfile
@@ -21,7 +21,7 @@ services:
       - key: VITE_GOOGLE_CLIENT_ID
         sync: false # optional, must match GOOGLE_CLIENT_ID
     disk:
-      name: classmate-data
+      name: classmate-xai-data
       mountPath: /app/backend/data
       sizeGB: 1
     healthCheckPath: /api/health

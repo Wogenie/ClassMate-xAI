@@ -106,3 +106,12 @@ QUIZ_SWEEP_BATCH = int(os.environ.get("CLASSMATE_QUIZ_SWEEP_BATCH", "2"))
 # Auto-cleanup: remove a passed event (class/quiz/assignment/deadline) N days
 # after its deadline/date has passed.
 EVENT_RETENTION_DAYS = int(os.environ.get("CLASSMATE_EVENT_RETENTION_DAYS", "2"))
+
+# Weekly inbox cleanup: purge raw Telegram messages older than this many days.
+# Runs once a week (Sundays) so each new week starts fresh on Monday and the
+# stored inbox history stays small enough to never crash on storage.
+INBOX_RETENTION_DAYS = int(os.environ.get("CLASSMATE_INBOX_RETENTION_DAYS", "7"))
+# Day of week (0=Mon ... 6=Sun) + time (hour, minute) when the weekly purge runs.
+INBOX_PURGE_WEEKDAY = int(os.environ.get("CLASSMATE_INBOX_PURGE_WEEKDAY", "6"))
+INBOX_PURGE_HOUR = int(os.environ.get("CLASSMATE_INBOX_PURGE_HOUR", "3"))
+INBOX_PURGE_MINUTE = int(os.environ.get("CLASSMATE_INBOX_PURGE_MINUTE", "0"))

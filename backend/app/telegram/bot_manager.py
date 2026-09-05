@@ -74,6 +74,33 @@ async def start_user_bot(user_id: int) -> str:
         return "Bot started."
 
 
+async def auto_start_enabled_bots() -> list[int]:
+    """On backend startup, re-start every bot the user enabled so it keeps
+    receiving Telegram messages across backend restarts (there is no other
+    auto-start path once the process exits)."""
+    from ..database import SessionLocal
+    from ..models import UserSettings
+
+    db = SessionLocal()
+    started: list[int] = []
+    try:
+        rows = (
+            db.query(UserSettings.user_id)
+            .filter(UserSettings.bot_enabled.is_(True))
+            .all()
+        )
+    finally:
+        db.close()
+
+    for (user_id,) in rows:
+        try:
+            await start_user_bot(user_id)
+            started.append(user_id)
+        except Exception as exc:  # noqa: BLE001
+            log.error("Auto-start bot failed user=%s: %s", user_id, exc)
+    return started
+
+
 async def stop_user_bot(user_id: int) -> None:
     task = _tasks.pop(user_id, None)
     if task:

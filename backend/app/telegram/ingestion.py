@@ -27,27 +27,50 @@ def _thread_key(chat_id, thread_id) -> str:
     return f"{chat_id}::{thread_id or ''}"
 
 
+def _bucket_for(message_text: str) -> str:
+    """Classify a raw message into assignment / exam / other so the unified
+    inbox can group them. Heuristic on the text (no LLM needed at store time)."""
+    import re as _re
+
+    low = (message_text or "").lower()
+    assignment_words = ["assignment", "assigment", "homework", "hw ",
+                        "assignment on", "submit", "due on", "due by", "deadline", "project"]
+    exam_words = ["exam", "mid", "midterm", "final", "quiz", "test",
+                  "assessment", "test on", "cat ", "continuous assessment"]
+    if any(w in low for w in exam_words):
+        return "exam"
+    if any(w in low for w in assignment_words):
+        return "assignment"
+    return "other"
+
+
+def _sender_label(name: str, username: str) -> str:
+    """Render a sender nicely as 'Abuga(@WogenieL)' for the inbox."""
+    name = (name or "").strip()
+    user = (username or "").strip()
+    if name and user:
+        if name == user:
+            return f"@{user}"
+        return f"{name}(@{user})"
+    if user:
+        return f"@{user}"
+    return name or "unknown sender"
+
+
 def _push_context(db: Session, user_id: int, chat_id, thread_id, msg_id,
-                  sender_name: str, text: str, media_type: str) -> None:
+                  sender_name: str, text: str, media_type: str,
+                  sender_username: str = "") -> None:
     row = SourcePool(
         user_id=user_id,
         thread_key=_thread_key(chat_id, thread_id),
         telegram_msg_id=msg_id,
         sender_name=sender_name,
+        sender_username=sender_username or "",
         text=text or "",
         media_type=media_type,
+        bucket=_bucket_for(text),
     )
     db.add(row)
-    # keep the window small
-    old = (
-        db.query(SourcePool)
-        .filter_by(user_id=user_id, thread_key=row.thread_key)
-        .order_by(SourcePool.id.desc())
-        .offset(MAX_CONTEXT)
-        .all()
-    )
-    for o in old:
-        db.delete(o)
     db.commit()
 
 
@@ -67,17 +90,25 @@ def _recent_context(db: Session, user_id: int, chat_id, thread_id) -> list[str]:
 
 def classify(db: Session, user_id: int, message_text: str, sender_name: str,
              thread_key: str, context: list[str]) -> dict:
-    """Run the extraction analyst over a message with its context window."""
+    """Run the extraction analyst over a message with its context window.
+
+    When no LLM is configured, or the LLM call fails (e.g. the Groq free-tier
+    daily token limit), fall back to a lightweight rule-based extractor so
+    obvious exam/quiz/assignment/class/deadline messages are STILL captured in
+    the dashboard instead of being silently dropped."""
     llm = llm_service.get_llm(db, user_id)
     if llm is None:
-        return {"facts": [], "should_ask_group": False, "ask_question": "", "reason": "no LLM configured"}
+        h = _heuristic_extract(message_text)
+        return h if h["facts"] else {**h, "reason": "no LLM configured"}
 
+    known_courses = "\n".join(_known_courses(db, user_id)) or "(none known yet)"
     sys = prompt_loader.load_prompt("extraction.txt").format(
         today=date.today().isoformat(),
         sender_name=sender_name,
         thread_key=thread_key,
         message_text=message_text,
         history="\n".join(context) if context else "(none)",
+        known_courses=known_courses,
     )
     from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -92,8 +123,89 @@ def classify(db: Session, user_id: int, message_text: str, sender_name: str,
         return payload
     except Exception as exc:  # noqa: BLE001
         log.warning("Extraction failed for user %s: %s", user_id, exc)
-        return {"facts": [], "should_ask_group": False, "ask_question": "",
-                "reason": f"extraction error: {exc}"}
+        h = _heuristic_extract(message_text)
+        return h if h["facts"] else {**h, "reason": f"extraction error: {exc}"}
+
+
+def _heuristic_extract(message_text: str) -> dict:
+    """Zero-LLM fallback extractor for obvious event messages. Captures a basic
+    exam/quiz/assignment/class fact with a course guess and any mention of a
+    date/deadline. Only fires when the text clearly looks like such an event."""
+    import re as _re
+
+    t = (message_text or "").strip()
+    fact: dict = {}
+    low = t.lower()
+
+    type_words = {
+        "exam": ["exam", "mid", "final", "test", "test on", "assessment"],
+        "quiz": ["quiz", "quizzes"],
+        "assignment": ["assignment", "assigment", "homework", "hw", "project",
+                       "assignment on", "submit", "due on", "due by", "deadline"],
+        "class": ["class", "lecture", "lesson", "cancel", "cancelled"],
+    }
+    for etype, words in type_words.items():
+        if any(w in low for w in words):
+            fact["type"] = etype
+            break
+    if "type" not in fact:
+        return {"facts": [], "should_ask_group": False, "ask_question": ""}
+
+    fact["title"] = t[:180]
+
+    # course guess: take the first capitalized token sequence before "exam/quiz/... on"
+    m = _re.search(r"(?i)([a-zA-Z][a-zA-Z ]{1,30}?)(?=\s+(?:mid|final|exam|quiz|test|assignment|class)\b)", t)
+    if m:
+        fact["course"] = m.group(1).strip()
+    if not fact.get("course"):
+        fact["course"] = ""
+    fact["confidence"] = "low"
+    fact["source"] = "confirmed"
+    return {"facts": [fact], "should_ask_group": False, "ask_question": ""}
+
+
+def _known_courses(db: Session, user_id: int) -> list[str]:
+    """Collect every course name the user has ever referenced, so the extraction
+    analyst can attribute an incoming message to a specific course (DSA, Physics,
+    ...) instead of defaulting to 'General'. Sources: every `course` value seen on
+    academic events plus course-outline names and course-code preferences."""
+    from ..models import AcademicEvent, UserPreference
+
+    names: set[str] = set()
+
+    rows = (
+        db.query(AcademicEvent.course)
+        .filter(AcademicEvent.user_id == user_id)
+        .distinct()
+        .all()
+    )
+    for (c,) in rows:
+        c = (c or "").strip()
+        if c and c.lower() not in ("general", "announcement"):
+            names.add(c)
+
+    rows = (
+        db.query(AcademicEvent.title)
+        .filter(AcademicEvent.user_id == user_id, AcademicEvent.type == "course")
+        .all()
+    )
+    for (t,) in rows:
+        t = (t or "").strip()
+        if t and t.lower() not in ("general", "announcement"):
+            names.add(t)
+
+    prefs = (
+        db.query(UserPreference.value)
+        .filter(UserPreference.user_id == user_id)
+        .all()
+    )
+    import re as _re
+    for (v,) in prefs:
+        v = (v or "").strip()
+        for tok in _re.findall(r"\b[A-Z]{2,}\b", v):
+            names.add(tok)
+
+    return sorted(names)
 
 
 def _auto_solve_in_background(user_id: int, event_id: int, etype: str) -> None:
@@ -176,63 +288,6 @@ def _auto_analyze_assignment_in_background(user_id: int, event_id: int) -> None:
         t.start()
     except Exception as exc:  # noqa: BLE001
         log.warning("auto-analysis scheduling failed user=%s: %s", user_id, exc)
-
-
-def _auto_missed_in_background(user_id: int, event_id: int) -> None:
-    """A 'class covered X' message (lecture_topic / class-with-topic): make it
-    appear in the missed-class dashboard. Cross-checks the course outline and
-    builds the summary off the request path. Future-dated events are skipped."""
-    def _run():
-        from datetime import date as _date
-        from ..database import SessionLocal
-        from ..models import AcademicEvent
-
-        db = SessionLocal()
-        try:
-            row = db.query(AcademicEvent).filter_by(id=event_id, user_id=user_id).first()
-            if row is None or row.type not in ("lecture_topic", "class"):
-                return
-            topic = (row.topic or row.title or "").strip()
-            if not topic:
-                return
-            event_date = str(row.event_date or "")[:10]
-            if event_date and event_date > _date.today().isoformat():
-                return  # a scheduled, future topic — not a covered class yet
-            course = row.course or "General"
-            date_str = event_date or _date.today().isoformat()
-            basis = f"group message · “{topic}”"
-
-            from ..services import coverage as cov
-
-            summary, cross = cov.build_missed_summary(
-                db, user_id, course, topic, date_str, basis,
-                context=(row.description or "")[:600], save=True,
-            )
-            from ..services import academic as _academic
-
-            exists = any(
-                m.topic.strip().lower() == topic.lower()
-                and m.course.strip().lower() == course.lower()
-                for m in _academic.list_missed(db, user_id)
-            )
-            verdict = "matches the outline" if cross.get("matched") else "not found in the outline"
-            if exists:
-                notifier.push(
-                    db, user_id, "missed", f"📋 {course} — {topic}",
-                    f"A missed-class summary is ready ({basis}). Outline cross-check: {verdict}.",
-                )
-        except Exception as exc:  # noqa: BLE001
-            log.warning("auto missed-summary failed user=%s event=%s: %s", user_id, event_id, exc)
-        finally:
-            db.close()
-
-    try:
-        import threading
-
-        t = threading.Thread(target=_run, daemon=True)
-        t.start()
-    except Exception as exc:  # noqa: BLE001
-        log.warning("auto missed-summary scheduling failed user=%s: %s", user_id, exc)
 
 
 def _detect_coverage_in_background(user_id: int, event_id: int,
@@ -324,9 +379,10 @@ def persist_facts(db: Session, user_id: int, payload: dict,
             # Dynamic Quiz Coverage Detection (EXPLICIT / INFERRED / AMBIGUOUS).
             _detect_coverage_in_background(user_id, row.id, text, context)
         elif row.type in ("lecture_topic", "class"):
-            # A class that WAS covered (reported by the group) lands in the
-            # missed-class dashboard automatically (future events are skipped inside).
-            _auto_missed_in_background(user_id, row.id)
+            # A class the group mentions as covered is NOT automatically added to
+            # the missed-class dashboard. Missed classes are recorded only when the
+            # assistant asks the group and someone confirms they missed it.
+            pass
         persisted.append(entry)
     return persisted
 
@@ -334,13 +390,14 @@ def persist_facts(db: Session, user_id: int, payload: dict,
 def process_message(db: Session, user_id: int, chat_id, thread_id, msg_id,
                     sender_name: str, text: str, media_path: str = "",
                     media_type: str = "", is_lecturer: bool = False,
-                    raw_event: object = None) -> dict:
+                    raw_event: object = None, sender_username: str = "") -> dict:
     """Full pipeline for one incoming message. Returns a result dict."""
     text = (text or "").strip()
     settings = llm_service.get_decrypted_settings(db, user_id)
 
-    # 1. context window
-    _push_context(db, user_id, chat_id, thread_id, msg_id, sender_name, text, media_type)
+    # 1. context window (retains every message for the unified inbox)
+    _push_context(db, user_id, chat_id, thread_id, msg_id, sender_name, text,
+                  media_type, sender_username=sender_username)
     context = _recent_context(db, user_id, chat_id, thread_id)
 
     # 2. document / screenshot ingestion into the course RAG store
@@ -362,7 +419,8 @@ def process_message(db: Session, user_id: int, chat_id, thread_id, msg_id,
         "message_id": msg_id,
         "chat_id": chat_id,
         "thread_id": thread_id,
-        "sender": sender_name,
+        "sender": _sender_label(sender_name, sender_username),
+        "sender_username": sender_username or "",
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "raw_text": text,
         "is_lecturer": is_lecturer,
@@ -381,6 +439,20 @@ def process_message(db: Session, user_id: int, chat_id, thread_id, msg_id,
         )
     except Exception as exc:  # noqa: BLE001
         log.warning("assignment group-answer check failed user=%s: %s", user_id, exc)
+
+    # 4c. if the assistant asked the group "did anyone miss X?" and someone
+    #     replies (reply-to match / any substantive reply while open), record
+    #     the missed class. Auto-sensing alone never creates a missed entry.
+    try:
+        from ..services import missed_flow
+        missed_flow.confirm_missed_group_reply(
+            db, user_id, thread_id, sender_name, combined or text,
+        )
+        missed_flow.confirm_ask_group_reply(
+            db, user_id, thread_id, sender_name, combined or text,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("missed-confirm check failed user=%s: %s", user_id, exc)
 
     # 5. notify for confirmed important facts
     for p in persisted:
@@ -427,13 +499,24 @@ async def telegram_event_handler(user_id: int, event) -> None:
     """Bound to the user's Telethon NewMessage handler."""
     from ..database import SessionLocal
 
+    # Never ingest the bot's OWN outgoing messages (polls, clarification
+    # questions, missed-class asks, replies the assistant posts). Otherwise the
+    # assistant's own posts would be re-classified as new facts/assignments.
+    if getattr(event, "out", False) or getattr(getattr(event, "message", None), "out", False):
+        return
+
     message = event.message
     chat_id = event.chat_id
     thread_id = getattr(message, "reply_to_msg_id", None)
     sender = await event.get_sender()
     sender_name = ""
+    sender_username = ""
     if sender is not None:
-        sender_name = getattr(sender, "first_name", "") or getattr(sender, "username", "") or str(getattr(sender, "id", ""))
+        first = getattr(sender, "first_name", "") or ""
+        last = getattr(sender, "last_name", "") or ""
+        display = (first + (" " + last if last else "")).strip()
+        sender_username = getattr(sender, "username", "") or ""
+        sender_name = display or sender_username or str(getattr(sender, "id", ""))
 
     text = (message.text or message.message or "").strip()
     media_type = "none"
@@ -456,6 +539,8 @@ async def telegram_event_handler(user_id: int, event) -> None:
         result = process_message(
             db, user_id, chat_id, thread_id, message.id, sender_name, text,
             media_path=media_path, media_type=media_type,
+            is_lecturer=bool(getattr(sender, "bot", False)),
+            sender_username=sender_username,
         )
         log.info("Ingestion user=%s chat=%s -> %s", user_id, chat_id,
                  f"{len(result['facts'])} facts" if result["facts"] else "no fact")
@@ -466,11 +551,12 @@ async def telegram_event_handler(user_id: int, event) -> None:
 # ----------------------------------------------------------------- simulate (dev helper)
 
 def simulate_message(db: Session, user_id: int, text: str, sender_name: str,
-                     thread_id: str = "", group_id: str = "") -> dict:
+                     thread_id: str = "", group_id: str = "",
+                     sender_username: str = "") -> dict:
     """Feed a message through the pipeline without a real Telegram group.
     Used by the web UI to demo ingestion instantly.
     """
     return process_message(
         db, user_id, group_id or "sim", thread_id, 0, sender_name, text,
-        media_type="none",
+        media_type="none", sender_username=sender_username,
     )

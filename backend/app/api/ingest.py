@@ -17,6 +17,29 @@ from .deps import get_current_user
 router = APIRouter(prefix="/ingest", tags=["ingest"])
 
 
+@router.get("/courses")
+def ingested_courses(user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """List the course outlines this user has already ingested (course + file),
+    so the UI can show them and avoid redundant re-ingestion."""
+    rows = (
+        db.query(DocumentChunkRef)
+        .filter(DocumentChunkRef.user_id == user.id)
+        .order_by(DocumentChunkRef.created_at.desc())
+        .all()
+    )
+    seen: dict[str, dict] = {}
+    for r in rows:
+        c = (r.course or "").strip()
+        if not c or c.lower() == "general":
+            continue
+        key = c.lower()
+        if key not in seen:
+            seen[key] = {"id": r.id, "course": c, "files": [], "chunks": r.chunk_count}
+        if r.filename:
+            seen[key]["files"].append(r.filename)
+    return list(seen.values())
+
+
 @router.post("/simulate")
 def simulate(body: SimulateRequest, user=Depends(get_current_user),
              db: Session = Depends(get_db)):

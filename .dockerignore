@@ -10,10 +10,17 @@ backend/data/
 backend/.env
 *.session
 *.log
+backend/*_out.txt
+backend/*_err.txt
+backend/pip_*.txt
+backend/runner_log.txt
 
 # Node
 frontend/node_modules/
 frontend/dist/
+frontend/vite_build_*.txt
+frontend/*_out.txt
+frontend/*_err.txt
 
 # Local spec/notes at repo root only (not needed in the image)
 /txt 2.txt

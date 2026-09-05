@@ -5,6 +5,7 @@ import {
   BookOpenCheck,
   CalendarClock,
   GraduationCap,
+  Inbox as InboxIcon,
   LayoutDashboard,
   Menu,
   MessagesSquare,
@@ -20,6 +21,7 @@ import { applyTheme, getInitialTheme } from '../services/theme.js'
 
 const NAV = [
   { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
+  { to: '/inbox', label: 'Message Inbox', icon: InboxIcon },
   { to: '/assistant', label: 'Assistant', icon: MessagesSquare },
   { to: '/assignments', label: 'Assignments & Deadlines', icon: BookOpenCheck },
   { to: '/schedule', label: 'Schedule · Quizzes · Missed', icon: CalendarClock },
@@ -79,7 +81,7 @@ export default function Layout() {
           <GraduationCap size={20} />
         </span>
         <div className="min-w-0">
-          <div className="font-bold text-slate-100 leading-none">ClassMateX</div>
+          <div className="font-bold text-slate-100 leading-none">Classmate xAI</div>
           <div className="text-[11px] text-slate-400 mt-1 truncate">your digital classmate</div>
         </div>
         <button onClick={closeDrawer} title="Close menu" className="ml-auto p-1.5 rounded-lg hover:bg-edge/50 sm:hidden">
@@ -179,7 +181,7 @@ export default function Layout() {
           >
             <Menu size={20} />
           </button>
-          <span className="font-bold sm:hidden mr-auto truncate">ClassMateX</span>
+          <span className="font-bold sm:hidden mr-auto truncate">Classmate xAI</span>
           <button
             onClick={toggleTheme}
             title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}

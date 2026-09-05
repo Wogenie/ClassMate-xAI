@@ -139,10 +139,23 @@ export default function Schedule() {
   const classes = data.classes || []
   const changes = data.changes || []
   const { quizzes, exams } = assess
-  const allAssessments = [
+  const combined = [
     ...quizzes.map((q) => ({ ...q, assessType: 'Quiz' })),
     ...exams.map((e) => ({ ...e, assessType: 'Exam' })),
-  ].sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))
+  ]
+  const dt = (s) => {
+    if (!s) return null
+    const d = new Date(s)
+    return Number.isNaN(d.getTime()) ? null : d.getTime()
+  }
+  const allAssessments = [...combined].sort((a, b) => {
+    const ca = a.created_at || ''
+    const cb = b.created_at || ''
+    if (ca !== cb) return cb.localeCompare(ca)
+    const da = dt(a.event_date) || 0
+    const dba = dt(b.event_date) || 0
+    return dba - da
+  })
 
   return (
     <div className="space-y-6">

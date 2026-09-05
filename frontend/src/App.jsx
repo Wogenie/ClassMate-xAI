@@ -6,6 +6,7 @@ import Register from './pages/Register.jsx'
 import Overview from './pages/Overview.jsx'
 import Assistant from './pages/Assistant.jsx'
 import Assignments from './pages/Assignments.jsx'
+import Inbox from './pages/Inbox.jsx'
 import Schedule from './pages/Schedule.jsx'
 import Setup from './pages/Setup.jsx'
 import Settings from './pages/Settings.jsx'
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="/" element={<Overview />} />
         <Route path="/assistant" element={<Assistant />} />
         <Route path="/assignments" element={<Assignments />} />
+        <Route path="/inbox" element={<Inbox />} />
         <Route path="/schedule" element={<Schedule />} />
         <Route path="/setup" element={<Setup />} />
         <Route path="/settings" element={<Settings />} />

@@ -1,4 +1,4 @@
-# ClassMateX
+# Classmate xAI
 
 > **Never ask "what did we learn today?" again.**
 
@@ -8,7 +8,7 @@ personalized academic knowledge — exposed through a clean web dashboard and an
 AI assistant that behaves like a smart classmate.
 
 **Core principle:** *Don't make the student ask a classmate what happened.
-Make ClassMateX remember it.*
+Make Classmate xAI remember it.*
 
 ---
 

@@ -16,9 +16,19 @@ export default function Settings() {
   const [notifs, setNotifs] = useState([])
   const [uploaded, setUploaded] = useState(null)
   const [file, setFile] = useState(null)
-  const [course, setCourse] = useState('general')
+  const [course, setCourse] = useState('')
+  const [courses, setCourses] = useState([])
   const [msg, setMsg] = useState(null)
   const [busy, setBusy] = useState(false)
+
+  const loadCourses = async () => {
+    try {
+      const { data } = await api.get('/ingest/courses')
+      setCourses(data)
+    } catch {
+      /* ignore */
+    }
+  }
 
   const load = async () => {
     try {
@@ -28,6 +38,7 @@ export default function Settings() {
       ])
       setRules(r.data)
       setNotifs(n.data)
+      await loadCourses()
     } catch {
       /* ignore */
     }
@@ -71,6 +82,9 @@ export default function Settings() {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
       setUploaded(data)
+      setFile(null)
+      setCourse('')
+      await loadCourses()
     } catch (e2) {
       setMsg({ kind: 'err', text: errText(e2) })
     } finally {
@@ -138,7 +152,18 @@ export default function Settings() {
         <form onSubmit={upload} className="flex flex-wrap gap-2 items-end">
           <div className="flex-1 min-w-[180px]">
             <label className="label">Course name</label>
-            <input className="input" value={course} onChange={(e) => setCourse(e.target.value)} />
+            <input
+              className="input"
+              placeholder="e.g. Data Structures & Algorithms"
+              value={course}
+              onChange={(e) => setCourse(e.target.value)}
+              list="ingested-courses"
+            />
+            <datalist id="ingested-courses">
+              {courses.map((c) => (
+                <option key={c.id} value={c.course} />
+              ))}
+            </datalist>
           </div>
           <div className="flex-1 min-w-[180px]">
             <label className="label">Outline file (PDF, DOCX, PPTX, TXT)</label>
@@ -153,6 +178,21 @@ export default function Settings() {
             <Check size={16} className="inline mr-1" /> Ingest
           </button>
         </form>
+        {courses.length > 0 && (
+          <div className="pt-1">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">
+              Outline already injected — don't re-upload these
+            </div>
+            <ul className="space-y-1">
+              {courses.map((c) => (
+                <li key={c.id} className="flex items-center justify-between text-xs bg-ink rounded-lg px-3 py-1.5 border border-edge/60">
+                  <span className="font-medium text-slate-200">{c.course}</span>
+                  <span className="text-slate-500 truncate ml-2">{c.files.length} file(s)</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {uploaded && (
           <p className="text-xs text-emerald-300">
             ✓ Embedded {uploaded.chunks} outline chunks into course “{uploaded.course}” (local embeddings in

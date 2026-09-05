@@ -431,7 +431,13 @@ def finalize_from_poll(db, user_id: int, row, winning_portion: str, total_votes:
 def _portion_knowable(row) -> bool:
     """Whether the quiz/exam PORTION is actually stated anywhere — in the
     announced message, pinned to the course outline, or via poll consensus.
-    If not, the summary must say NOTHING (stay empty) instead of guessing."""
+
+    Also considered "knowable" when the quiz/exam has a named scope/topic in its
+    title or description (e.g. "Laplace transformation mid exam"). In that case
+    the summary is generated as a concise topic overview, falling back to general
+    knowledge when no course material exists. Only returns False when there is
+    literally nothing to describe (no bounds, sections, topics, voted portion,
+    and no title/topic text at all)."""
     d = _details(row)
     cover = d.get("coverage") or {}
     bounds = cover.get("coverage") or {}
@@ -442,10 +448,15 @@ def _portion_knowable(row) -> bool:
         t for t in (cover.get("topics") or [])
         if isinstance(t, dict) and (t.get("name") or "").strip()
     ]
+    named_scope = " ".join(filter(None, [
+        (row.title or "").strip(), (row.topic or "").strip(),
+        (row.description or "")[:120],
+    ])).strip()
     return bool(
         (d.get("winning_portion") or "").strip()
         or (d.get("coverage_chapter") or "").strip()
         or start or end or sections or topics
+        or (len(named_scope) >= 8)
     )
 
 
@@ -454,8 +465,12 @@ def generate_portion_summary(db, user_id: int, row) -> str:
     retrieved course docs. Stores details['portion_summary'] (+ basis) and
     returns the summary text.
 
-    If the portion is not mentioned anywhere (no bounds, sections, topics,
-    chapter or voted portion), NOTHING is stored — the summary stays empty."""
+    When the portion is explicitly stated (bounds/sections/topics/chapter/voted
+    portion) it is summarized from the outline + docs. When only the quiz/exam's
+    own scope/topic is known (e.g. "Laplace transformation mid exam") it falls
+    back to the topic name itself; if no course material exists it generates a
+    concise overview from general knowledge. Only if there is literally no scope,
+    topic or material does the summary stay empty and nothing is stored."""
     from langchain_core.prompts import ChatPromptTemplate
     from ..knowledge import rag as rag_mod
 
@@ -463,8 +478,8 @@ def generate_portion_summary(db, user_id: int, row) -> str:
     cover = get_coverage(row)
     d = row.details or {}
 
-    # If the portion is not stated anywhere (no bounds/sections/topics/chapter/
-    # voted portion), say NOTHING: no summary text, no placeholder, no guess.
+    # If there is literally no scope, topic name or material to go on, stay
+    # empty (nothing stored rather than a bare guess).
     if not _portion_knowable(row):
         return ""
 
@@ -473,10 +488,14 @@ def generate_portion_summary(db, user_id: int, row) -> str:
     bounds = cover.get("coverage") or {}
     outline = _outline_lines(db, user_id, row.course)
 
+    # When no explicit bounds/sections are stated, fall back to the quiz/exam's
+    # own named scope (title/topic) so we can still describe what it covers.
+    named_scope = (row.title or row.topic or "").strip()
     query = " ".join(filter(None, [
         row.course or "", portion,
         bounds.get("start", ""), bounds.get("end", ""),
         " ".join(t.get("name", "") for t in topics),
+        named_scope,
     ]))
     docs = rag_mod.search_with_meta(user_id, row.course, query or row.course, k=4)
 
@@ -505,8 +524,10 @@ def generate_portion_summary(db, user_id: int, row) -> str:
 
     prompt = ChatPromptTemplate.from_template(
         "You summarize the exam/quiz COVERAGE (the 'portion') for a university "
-        "student. Ground EVERYTHING in the provided outline and doc excerpts; "
-        "never invent topics, chapters or facts that are not present in them.\n\n"
+        "student. When course outline or doc excerpts are present, ground "
+        "EVERYTHING in them and never invent topics, chapters or facts that are "
+        "not present. When there is NO course material, generate a concise "
+        "overview of the scope/topic from your own general knowledge instead.\n\n"
         "=== QUIZ/EXAM ===\n{title} — course: {course} ({date})\n\n"
         "=== COVERAGE STATUS ===\n{status} · basis: {basis}\n"
         "Bounds: {start} → {end}\n"
@@ -515,13 +536,16 @@ def generate_portion_summary(db, user_id: int, row) -> str:
         "=== EXTRACTED TOPICS ===\n{topics}\n\n"
         "=== COURSE DOCUMENT EXCERPTS ===\n{docs}\n\n"
         "Produce a concise, study-ready PORTION SUMMARY:\n"
-        "1. What the exam covers (chapters/sections/topics) — say clearly whether "
-        "this is (CONFIRMED) announced, student-voted INFERRED, or still unclear.\n"
+        "1. What the exam covers (chapters/sections/topics or the scope named in the "
+        "quiz/exam title) — say clearly whether this is (CONFIRMED) announced, "
+        "student-voted INFERRED, or a general-knowledge overview (INFERRED).\n"
         "2. A bullet list of what to study; for each item a one-line plain-English "
-        "explanation plus the key terms/equations found in the excerpts.\n"
+        "explanation plus the key terms/equations found in the excerpts — or, when "
+        "no material exists, the standard subtopics/concepts/equations of the topic "
+        "described in plain English.\n"
         "3. What is NOT in scope if inferable.\n"
-        "Keep it under ~12 bullets. If the sources cannot tell what the portion is, "
-        "say exactly that instead of guessing."
+        "Keep it under ~12 bullets. If there is genuinely no scope, topic or "
+        "material to go on, say exactly that instead of guessing."
     )
     chain = prompt | llm
     try:
@@ -548,6 +572,10 @@ def generate_portion_summary(db, user_id: int, row) -> str:
         return ""
 
     basis = "course outline + RAG docs" + (" + poll majority" if portion else "")
+    if not (outline or docs):
+        basis = "general knowledge (no course material ingested)"
+    elif not outline:
+        basis = "RAG docs (no course outline ingested)" + (" + poll majority" if portion else "")
     d["portion_summary"] = summary
     d["portion_summary_basis"] = basis
     row.details = d

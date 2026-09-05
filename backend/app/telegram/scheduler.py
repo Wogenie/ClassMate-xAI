@@ -43,8 +43,41 @@ def start_scheduler():
         max_instances=1,
         coalesce=True,
     )
+    scheduler.add_job(
+        purge_old_inboxes,
+        "cron",
+        day_of_week=config.INBOX_PURGE_WEEKDAY,
+        hour=config.INBOX_PURGE_HOUR,
+        minute=config.INBOX_PURGE_MINUTE,
+        id="inbox_weekly_purge",
+        max_instances=1,
+        coalesce=True,
+    )
     scheduler.start()
     return scheduler
+
+
+def purge_old_inboxes():
+    """Weekly (Sundays) purge of stored raw inbox messages per user, so each
+    fresh week starts on Monday and the DB never grows without bound."""
+    from ..services import academic
+    from ..database import SessionLocal
+    from ..models import UserSettings
+
+    db = SessionLocal()
+    try:
+        users = db.query(UserSettings).all()
+        for settings in users:
+            try:
+                purged = academic.purge_old_inbox(
+                    db, settings.user_id, config.INBOX_RETENTION_DAYS
+                )
+                if purged:
+                    log.info("Purged %s old inbox message(s) for user=%s", purged, settings.user_id)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Inbox purge failed for user %s: %s", settings.user_id, exc)
+    finally:
+        db.close()
 
 
 def sweep_quiz_summaries():

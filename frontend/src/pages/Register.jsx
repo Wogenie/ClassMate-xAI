@@ -43,7 +43,7 @@ export default function Register() {
   return (
     <div className="min-h-screen grid place-items-center bg-ink">
       <div className="w-full max-w-sm">
-        <h1 className="text-2xl font-bold mb-6 text-center">Create your ClassMateX account</h1>
+        <h1 className="text-2xl font-bold mb-6 text-center">Create your Classmate xAI account</h1>
         <div className="card space-y-4">
           <div className="text-center">
             <p className="text-sm text-slate-300 font-medium mb-1">Sign up with Google</p>

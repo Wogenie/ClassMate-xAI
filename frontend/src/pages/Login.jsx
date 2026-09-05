@@ -46,7 +46,7 @@ export default function Login() {
           <span className="w-12 h-12 rounded-2xl bg-indigo-500 grid place-items-center">
             <GraduationCap size={26} />
           </span>
-          <h1 className="text-2xl font-bold">ClassMateX</h1>
+          <h1 className="text-2xl font-bold">Classmate xAI</h1>
           <p className="text-sm text-slate-400">Never ask “what did we learn today?” again.</p>
         </div>
         <div className="card space-y-4">

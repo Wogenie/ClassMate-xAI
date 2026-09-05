@@ -1,4 +1,4 @@
-"""SQLAlchemy models for ClassMateX."""
+"""SQLAlchemy models for Classmate xAI."""
 from datetime import datetime, timezone
 
 from sqlalchemy import (
@@ -112,10 +112,12 @@ class SourcePool(Base):
     thread_key = Column(String(200), index=True)  # chat_id::thread_id
     telegram_msg_id = Column(Integer)
     sender_name = Column(String(120), default="")
+    sender_username = Column(String(120), default="")
     sender_is_lecturer = Column(Boolean, default=False)
     timestamp = Column(DateTime, default=_now)
     text = Column(Text, default="")
     media_type = Column(String(30), default="")   # none, photo, document...
+    bucket = Column(String(30), default="other")  # assignment | exam | other
     raw_json = Column(Json, default=lambda: MutableDict())
 
 
@@ -181,6 +183,22 @@ class MissedSummary(Base):
     created_at = Column(DateTime, default=_now)
 
 
+class MissedRequest(Base):
+    """An open 'did anyone miss X?' request the assistant sent to the group.
+    A class is added to the missed dashboard only when a group member replies
+    to this request (desired flow: assistant asks -> any response = missed)."""
+
+    __tablename__ = "missed_requests"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)
+    course = Column(String(120))
+    topic = Column(String(300))
+    telegram_message_id = Column(String(40), default="")
+    requested_at = Column(DateTime, default=_now)
+    completed_at = Column(DateTime, nullable=True)
+
+
 class DocumentChunkRef(Base):
     """Bookkeeping of documents ingested into the user's RAG store."""
 
@@ -232,4 +250,5 @@ class TelegramMessage(Base):
     chat = Column(String(200), default="")
     sender_id = Column(String(120), default="classmate_ai_bot")
     text = Column(Text, default="")
+    telegram_msg_id = Column(String(40), default="")
     created_at = Column(DateTime, default=_now)

@@ -1,4 +1,4 @@
-# ClassMateX — single-container deployment.
+# Classmate xAI — single-container deployment.
 # The backend serves the built frontend itself, so one service is all you need.
 #
 # Usage:
@@ -17,8 +17,8 @@ services:
         # Optional: enable "Continue with Google" in the built frontend.
         # Must match GOOGLE_CLIENT_ID in the environment below.
         VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
-    image: classmatex:latest
-    container_name: classmatex
+    image: classmatexai:latest
+    container_name: classmatexai
     restart: unless-stopped
     ports:
       - "8000:8000"

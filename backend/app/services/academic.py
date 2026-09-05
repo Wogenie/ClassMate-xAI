@@ -44,6 +44,11 @@ def upsert_event(
     existing = None
     if match_key:
         existing = _find_existing(db, user_id, etype, course, match_key)
+    if existing is None and etype == "assignment" and not event.get("deadline"):
+        # Assignments without a deadline were never deduped (no match_key), so
+        # a repeated/duplicate message created an identical second row. Fall back
+        # to matching on normalized course + title to collapse exact duplicates.
+        existing = _find_existing_by_title(db, user_id, etype, course, title)
 
     if existing is not None:
         # Upgrade trust when a confirmed source repeats/refines a fact.
@@ -115,7 +120,27 @@ class EventLookup:
         self.value = value
 
 
-# ---------------------------------------------------------------- queries
+def _find_existing_by_title(db, user_id, etype, course, title) -> AcademicEvent | None:
+    """Case/whitespace-insensitive match on normalized course + title, used to
+    collapse exact duplicate assignments that lack a deadline."""
+    norm = lambda s: " ".join((s or "").lower().split())
+    t = norm(title)
+    c = norm(course)
+    if not t:
+        return None
+    try:
+        rows = (
+            db.query(AcademicEvent)
+            .filter_by(user_id=user_id, type=etype)
+            .all()
+        )
+    except Exception:
+        return None
+    for r in rows:
+        if norm(r.course) == c or c in norm(r.course) or norm(r.course) in c:
+            if norm(r.title) == t:
+                return r
+    return None# ---------------------------------------------------------------- queries
 
 def list_events(db: Session, user_id: int, etype: str | None = None,
                 status: str | None = None, course: str | None = None,
@@ -214,6 +239,32 @@ def purge_stale_events(db: Session, user_id: int, days: int) -> int:
         if dt is not None and dt < cutoff:
             db.delete(r)
             deleted += 1
+    if deleted:
+        db.commit()
+    return deleted
+
+
+def purge_old_inbox(db: Session, user_id: int, keep_days: int = 7) -> int:
+    """Delete raw inbox (SourcePool) messages older than `keep_days` days.
+
+    Keeps the unified Inbox bounded so the stored message history cannot grow
+    without limit and crash the DB. Runs weekly (Sundays) via the scheduler so
+    each fresh week starts on Monday with only that week's messages retained.
+    Returns the count of deleted rows.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=keep_days)
+    rows = (
+        db.query(SourcePool)
+        .filter(
+            SourcePool.user_id == user_id,
+            SourcePool.timestamp < cutoff,
+        )
+        .all()
+    )
+    deleted = 0
+    for r in rows:
+        db.delete(r)
+        deleted += 1
     if deleted:
         db.commit()
     return deleted
@@ -412,7 +463,8 @@ def resolve_group(db: Session, user_id: int, fallback: str = "") -> str:
 
 
 def add_telegram_message(db: Session, user_id: int, chat: str, text: str,
-                         sender_id: str = "classmate_ai_bot") -> dict:
+                         sender_id: str = "classmate_ai_bot",
+                         telegram_msg_id: str = "") -> dict:
     """Log a message the assistant posted to a Telegram group.
 
     Stored so the assistant's outbound posts are visible/traceable in the app
@@ -422,6 +474,7 @@ def add_telegram_message(db: Session, user_id: int, chat: str, text: str,
 
     row = TelegramMessage(
         user_id=user_id, chat=chat, sender_id=sender_id, text=text,
+        telegram_msg_id=str(telegram_msg_id or ""),
     )
     db.add(row)
     db.commit()
@@ -444,3 +497,45 @@ def list_telegram_messages(db: Session, user_id: int, limit: int = 50) -> list:
          "created_at": r.created_at.isoformat() if r.created_at else None}
         for r in rows
     ]
+
+
+def list_inbox(db: Session, user_id: int, limit: int = 300) -> dict:
+    """Group every stored Telegram message into assignment / exam / other
+    buckets, newest first. `other` holds any text not assignment- or exam-like,
+    so every sensed message is captured somewhere."""
+    rows = (
+        db.query(SourcePool)
+        .filter(SourcePool.user_id == user_id)
+        .order_by(SourcePool.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+    def _label(r):
+        name = (r.sender_name or "").strip()
+        user = (r.sender_username or "").strip()
+        if name and user and name != user:
+            return f"{name}(@{user})"
+        if name:
+            return name
+        if user:
+            return f"@{user}"
+        return "unknown sender"
+
+    groups = {"assignment": [], "exam": [], "other": []}
+    for r in reversed(rows):
+        b = (r.bucket or "other")
+        if b not in groups:
+            b = "other"
+        groups[b].append({
+            "id": r.id,
+            "thread_key": r.thread_key,
+            "sender": _label(r),
+            "sender_name": r.sender_name or "",
+            "sender_username": r.sender_username or "",
+            "is_lecturer": bool(r.sender_is_lecturer),
+            "text": r.text or "",
+            "media_type": r.media_type or "",
+            "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+        })
+    return groups

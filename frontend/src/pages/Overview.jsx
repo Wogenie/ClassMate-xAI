@@ -67,16 +67,11 @@ export default function Overview() {
         <div className="bg-rose-500/10 text-rose-300 px-4 py-3 rounded-xl text-sm">{error}</div>
       )}
 
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="min-w-0">
-          <h1 className="text-xl sm:text-2xl font-bold">Your academic life, right now</h1>
-          <p className="text-sm text-slate-400 mt-1">
-            Today · {data.today} — everything ClassMateX has extracted from your Telegram group.
-          </p>
-        </div>
-        <Link to="/assistant" className="btn-primary shrink-0">
-          Ask the assistant
-        </Link>
+      <div>
+        <h1 className="text-xl sm:text-2xl font-bold">Your academic life, right now</h1>
+        <p className="text-sm text-slate-400 mt-1">
+          Today · {data.today} — everything Classmate xAI has extracted from your Telegram group.
+        </p>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

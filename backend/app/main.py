@@ -1,4 +1,4 @@
-"""ClassMateX — FastAPI application entrypoint.
+"""Classmate xAI — FastAPI application entrypoint.
 
 Run:  uvicorn app.main:app --reload --port 8000
 """
@@ -28,7 +28,16 @@ async def lifespan(app: FastAPI):
     init_db()
     prompt_loader.ensure_default_prompt_files()
     app.state.scheduler = scheduler.start_scheduler()
-    log.info("ClassMateX backend up on :%s", config.APP_PORT)
+
+    # Re-start each user's enabled Telegram bot so the backend keeps receiving
+    # messages after a restart (bots do not survive the process being down).
+    from .telegram import bot_manager
+
+    started = await bot_manager.auto_start_enabled_bots()
+    if started:
+        log.info("Auto-started Telegram bots for users: %s", started)
+
+    log.info("Classmate xAI backend up on :%s", config.APP_PORT)
     yield
     try:
         app.state.scheduler.shutdown(wait=False)
@@ -36,7 +45,7 @@ async def lifespan(app: FastAPI):
         pass
 
 
-app = FastAPI(title="ClassMateX", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Classmate xAI", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -80,7 +89,7 @@ _include(preferences.router)
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "app": "ClassMateX"}
+    return {"status": "ok", "app": "Classmate xAI"}
 
 
 # ---- Production static hosting of the built SPA (same origin) ----

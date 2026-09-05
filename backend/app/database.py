@@ -6,7 +6,13 @@ from . import config
 
 connect_args = {}
 if config.DATABASE_URL.startswith("sqlite"):
+    # check_same_thread=False lets background threads (Telegram ingestion,
+    # scheduler sweeps, assignment auto-analysis) open sessions from other
+    # threads. The timeout sets SQLite's busy_timeout so concurrent writers
+    # WAIT for the lock instead of raising "database is locked" and dropping
+    # group replies / analysis updates.
     connect_args["check_same_thread"] = False
+    connect_args["timeout"] = 30
 
 engine = create_engine(
     config.DATABASE_URL,
@@ -73,6 +79,24 @@ def _migrate():
             if cols and "cross_check" not in cols:
                 conn.execute(
                     text("ALTER TABLE missed_summaries ADD COLUMN cross_check JSON")
+                )
+                conn.commit()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            cols = [r[1] for r in conn.execute(text("PRAGMA table_info(source_pool)"))]
+            for col, decl in (
+                ("sender_username", "VARCHAR(120)"),
+                ("bucket", "VARCHAR(30)"),
+            ):
+                if cols and col not in cols:
+                    conn.execute(text(f"ALTER TABLE source_pool ADD COLUMN {col} {decl}"))
+                    conn.commit()
+        except Exception:  # noqa: BLE001
+            pass
+            if cols and "telegram_msg_id" not in cols:
+                conn.execute(
+                    text("ALTER TABLE telegram_messages ADD COLUMN telegram_msg_id VARCHAR(40) DEFAULT ''")
                 )
                 conn.commit()
         except Exception:  # noqa: BLE001

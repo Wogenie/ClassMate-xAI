@@ -77,17 +77,29 @@ def _source_bundle(db, user_id: int, row, document_text: str = "") -> dict:
     )
     msgs = [f"[{s.sender_name or 'student'}] {s.text}" for s in reversed(rows) if (s.text or "").strip()]
 
-    # 3) course outline (ingested courses + lecture topics)
+    # 3) course outline (ingested courses + lecture topics). Prefer the
+    #     assignment's own course, but when it is unknown/"General" include the
+    #     full outline so the agent can still identify and explain the topic.
+    target_course = (row.course or "").strip()
+    is_generic = target_course.lower() in ("", "general", "announcement")
     outline = []
     for e in academic.list_events(db, user_id, etype="course", limit=20) \
         + academic.list_events(db, user_id, etype="lecture_topic", limit=40):
         name = (e.topic or e.title or "").strip()
-        if name and (not row.course or e.course.lower() == row.course.lower()):
-            outline.append(name)
+        if not name:
+            continue
+        if is_generic or e.course.lower() == target_course.lower():
+            outline.append(f"[{e.course or 'General'}] {name}")
 
-    # 4) course RAG on the assignment's own topics
+    # 4) course RAG on the assignment's own topics. When the course is unknown,
+    #    search across ALL of the student's course material (books, outlines,
+    #    docs) so the description is grounded in the right subject no matter
+    #    which course the message was tagged with.
     query = " ".join(filter(None, [row.course, row.title, message]))
-    docs = rag_mod.search_with_meta(user_id, row.course, query or row.course, k=4)
+    if is_generic:
+        docs = rag_mod.search_all_courses_with_meta(user_id, query or row.title or "", k_per_course=3)
+    else:
+        docs = rag_mod.search_with_meta(user_id, target_course, query or target_course, k=4)
 
     # 5) student answers from prior clarification rounds
     d = row.details or {}
@@ -156,12 +168,21 @@ def _bundle_text(bundle: dict, budget: int = 8000) -> str:
 # -------------------------------------------------------------- analysis
 
 _ANALYZE_PROMPT = """You are the Assignment Understanding Agent for a university
-student assistant. Your FIRST job is to UNDERSTAND the assignment — you do NOT
-solve it yet.
+student assistant. Your FIRST job is to UNDERSTAND the assignment well enough to
+describe it in detail — you do NOT solve it yet.
 
-Analyze ONLY what the available sources support. Never invent requirements,
-deadlines, submission formats, software, objectives, or lecturer intent. When a
-source establishes something, say so; otherwise mark it clearly.
+PRIMARY SOURCE = the student's own course material. The course outline, the
+assigned book/lecture chapters and the retrieved course documents are the most
+reliable basis for knowing WHAT the project is about and WHAT work it involves.
+Use them to flesh out the topic and the expected intellectual work. The brief
+Telegram announcement tells you the project name/topic; the course material tells
+you what that topic actually means and what must be done.
+
+Reason about source priority: the assignment document/instructions outrank the
+lecturer's announcement, which outranks supporting material and student guesses.
+The COURSE OUTLINE and COURSE MATERIALS (retrieved docs) are used to explain and
+expand the topic whenever the announcement is brief. If sources conflict, do NOT
+silently pick one — say so and flag it in missing_information.
 
 === ASSIGNMENT ===
 Course: {course}
@@ -170,21 +191,26 @@ Deadline: {deadline}
 
 {SOURCES}
 
-Reason about source priority: the assignment document/instructions outrank the
-lecturer's announcement, which outranks supporting material, student guesses,
-and course outline. If sources conflict, do NOT silently pick one — say so and
-flag it in missing_information.
+Generate, yourself, a DETAILED project description and a concrete "what must be
+done" list, grounded in the course material above. Only the *specific admin*
+facts (exact deadline, submission files, exact page numbers the lecturer may or
+may not have set) must not be invented — everything about the subject and the
+technical work CAN and SHOULD be built out from the course outline, the book/
+chapter and the course docs. If the course material is present, never settle for
+a vague one-liner: write a real, useful description.
 
 Return STRICT JSON only (no markdown):
 {{
-  "summary": "describe WHAT the project is and its technical content — the subject, the underlying concepts, and the design/analysis work involved. MUST be short: at most 3 short sentences (~2-3 lines). NEVER mention deadlines, due dates, submission format, or admin details.",
+  "summary": "A DETAILED description of WHAT the project is and the technical/design/analysis/build work involved: the subject, the underlying concepts, the chapters/topics it draws on, and what the student must actually do. Be concrete and specific (about 4-8 sentences). Build it primarily from the course material. Do not invent a specific deadline, submission format, or an exact file list the sources did not state, but DO describe the technical work in full.",
   "objective": "plain-language objective, or Not specified",
-  "tasks": ["list", "of", "identified", "tasks"],
+  "tasks": ["the concrete, ordered steps of what must be done to complete the project (derive from the course material when the announcement is brief)"],
   "requirements": ["known", "requirements", "or", "constraints"],
-  "required_topics": ["concepts", "/", "topics", "needed"],
+  "required_topics": ["concepts", "/", "chapters", "/", "topics", "needed", "(from the course material)"],
   "required_tools": ["software", "/", "tools", "needed"],
   "expected_outputs": ["deliverables", "known"],
-  "submission_requirements": ["submission", "files", "/", "formats"],
+  "submission_requirements": ["submission", "files", "/", "formats", "(only if stated)"],
+  "group_or_individual": "group | individual | solo | (empty if unknown)",
+  "submission_format": "pdf | docx | online | report | (empty if unknown)",
   "known_information": ["what the sources DO establish"],
   "missing_information": ["what is still unknown and matters"],
   "clarification_questions": ["only questions whose answers would materially improve understanding"],
@@ -194,9 +220,13 @@ Return STRICT JSON only (no markdown):
 }}
 
 Rules:
-- summary must DESCRIBE the project and its technical content. It must NOT
-  mention deadlines, due dates, submission format, names of submission files, or
-  any admin detail.
+- summary MUST be a detailed technical description of the project and the work
+  required. Use the course outline and course materials to expand it. It must NOT
+  mention specific deadlines, due dates, submission format, or invented page
+  numbers — but it MUST explain the subject and the what-must-be-done in full.
+- tasks MUST list, in order, the concrete steps the student must do (break the
+  project into actionable pieces using the course material when the announcement
+  only names the topic).
 - summary must say CLEARLY when information is incomplete. Never overstate.
 - understanding_status: judge whether the evidence is actually enough to
   understand the project — do not use a fixed rule (e.g. presence of a field).
@@ -205,13 +235,14 @@ Rules:
   tool you don't have is required; "requires_student_action" if the student must
   do something physical/offline first.
 - Use empty arrays for lists with no known values; use "Not specified" for
-  unknown scalar values. Do NOT fabricate any value.
+  unknown scalar values. Do NOT fabricate a deadline, submission format, or exact
+  file names — but DO build out the technical description from the course material.
 """
 
 
-def _shorten_summary(text: str, max_sentences: int = 3, limit: int = 280) -> str:
-    """Hard-cap a summary to ~2-3 lines: at most `max_sentences`, never more
-    than `limit` characters."""
+def _shorten_summary(text: str, max_sentences: int = 8, limit: int = 1400) -> str:
+    """Sanity-cap a summary to a detailed but bounded description: at most
+    `max_sentences`, never more than `limit` characters."""
     t = (text or "").strip()
     if not t:
         return t
@@ -247,6 +278,73 @@ def _short_blurb(message: str, limit: int = 160) -> str:
         if 0 < idx <= limit:
             return t[: idx + 1].strip()
     return (t[:limit] + "…").strip() if len(t) > limit else t
+
+
+_FULL_ANSWER_PROMPT = """You are a classmate who has fully understood the project
+below and now WRITES THE COMPLETE ANSWER for it. Ground everything in the attached
+sources (the assignment announcement, the student's answer, and the course
+textbook/outline material). Do NOT include placeholder text like "To be
+filled" — produce the real, usable answer now.
+
+=== ASSIGNMENT ===
+Course: {course}
+Title: {title}
+
+{SOURCES}
+
+Write the COMPLETE answer/solution for this assignment as a full markdown response
+(no preamble). Structure it naturally:
+- What the project is / the objective
+- The step-by-step work / how to do it
+- The actual explanations, design, formulas, algorithm/code outline or analysis,
+  drawn from the course material
+- Key points to include / what the deliverable should show
+
+If parts are genuinely unknown, state clearly what is still missing rather than
+fabricate specific deadlines or submission details. Otherwise, answer fully.
+"""
+
+
+def _generate_full_answer(db, user_id: int, row) -> str:
+    """Build the ACTUAL complete answer for an assignment and store it in
+    details['solution'] (which the dashboard's 'AI Answer' box shows). Uses the
+    same RAG-grounded source bundle as analysis: course material + outline, any
+    uploaded document, and the student's clarification answer. Returns the answer
+    text ('' when the LLM is unavailable)."""
+    llm = _llm(db, user_id)
+    if llm is None:
+        return ""
+    bundle = _source_bundle(db, user_id, row)
+    sources = _bundle_text(bundle)
+    prompt = _FULL_ANSWER_PROMPT.format(
+        course=row.course or "(unknown)",
+        title=row.title or "Assignment",
+        SOURCES=sources,
+    )
+    from langchain_core.messages import HumanMessage
+
+    try:
+        res = llm.invoke([HumanMessage(content=prompt)])
+        answer = (res.content or "").strip()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("assignment full-answer generation failed user=%s: %s", user_id, exc)
+        return ""
+
+    d = row.details or {}
+    if answer:
+        d["solution"] = answer
+        # keep the summary line concise but meaningful for any non-solution
+        # fallback view
+        if not (d.get("summary") or "").strip():
+            d["summary"] = _short_blurb(row.description or row.title or "")
+        d["answer_source"] = {
+            "status": "full",
+            "at": datetime.now(timezone.utc).isoformat(),
+        }
+        row.details = d
+        db.commit()
+        db.refresh(row)
+    return answer
 
 
 def instant_summary(db, user_id: int, row) -> dict:
@@ -376,6 +474,9 @@ def _normalize_understanding(raw: dict, row) -> dict:
         "submission_requirements": _list("submission_requirements"),
         "known_information": _list("known_information"),
         "missing_information": _list("missing_information"),
+        "group_or_individual": (raw.get("group_or_individual") or
+                                raw.get("group_individual") or "").strip(),
+        "submission_format": (raw.get("submission_format") or "").strip(),
         "clarification_questions": _list("clarification_questions"),
         "understanding_status": status,
         "feasibility_status": feas,
@@ -385,76 +486,46 @@ def _normalize_understanding(raw: dict, row) -> dict:
 
 # --------------------------------------------------------- clarify (dynamic)
 
-_ASk_PROMPT = """You dynamically decide which questions to ask a student to
-understand their assignment better. Inspect what is ALREADY known and what is
-missing, then ask ONLY the questions that would materially reduce uncertainty.
-
-=== KNOWN SO FAR ===
-{understanding}
-
-=== MISSING INFORMATION ===
-{missing}
-
-=== PREVIOUS QUESTIONS ALREADY ASKED (don't repeat) ===
-{asked}
-
-Return STRICT JSON:
-{{
-  "introduction": "one short friendly sentence acknowledging what you know",
-  "questions": ["question1", "question2", "..."],
-  "reason": "why these specific questions matter"
-}}
-
-Rules:
-- Ask at most 5 questions.
-- If a document already answers something, do NOT ask about it.
-- If only one or two gaps exist, ask only those.
-- If nothing critical is missing, questions may be an empty array — say so.
-"""
-
-
 def generate_questions(db, user_id: int, row) -> list[str]:
-    """Generate the 'Ask Student About This Project' questions (dynamic)."""
+    """The clarification questions posted to the Telegram group on 'Ask'.
+
+    One or two short, single-line questions that together capture the key
+    details the model needs, phrased with the assignment topic and course name
+    so the class knows exactly what is being asked: what the project is about,
+    its deadline, and whether it is individual or a group. Kept to one line each
+    so the group can answer quickly; a detail is only asked if it is not already
+    known."""
     d = row.details or {}
     understanding = (d.get("understanding") or {})
-    clar = d.get("clarification") or {}
-    asked = []
-    for q in clar.get("questions", []):
-        if isinstance(q, dict):
-            asked.append(q.get("text", ""))
-        elif isinstance(q, str):
-            asked.append(q)
+    summary = (understanding.get("summary") or d.get("summary") or "").strip()
+    description = (row.description or row.title or "").strip()
+    topic = (row.title or "").strip()
+    course = (row.course or "").strip()
 
-    llm = _llm(db, user_id)
-    if llm is None:
-        return _fallback_questions(understanding)
+    has_topic = len(summary) >= 30 or len(description) >= 20
+    has_deadline = bool((row.deadline or "").strip())
+    has_format = bool((understanding.get("submission_format") or "").strip() or
+                      (understanding.get("submission_requirements") or []))
+    has_group = bool((understanding.get("group_or_individual") or "").strip())
+    has_doc = bool((d.get("documents") or []) or
+                   (understanding.get("known_information") or []))
 
-    prompt = _ASk_PROMPT.format(
-        understanding=_fmt_understanding(understanding),
-        missing="\n".join(understanding.get("missing_information", [])) or "(none listed)",
-        asked="\n".join(asked) or "(none)",
-    )
-    out = _invoke_json(llm, prompt) or {}
-    questions = [str(q).strip() for q in out.get("questions", []) if str(q).strip()]
+    # Natural phrasing: "<topic> <course> assignment/...?" avoiding a dangling
+    # space when either the topic or the course is empty.
+    subject = f"{topic} {course}".strip() or "this assignment"
 
-    # remember the asked questions so we don't repeat them next round
-    clar = dict(clar)
-    clar["asked_ats"] = clar.get("asked_ats", [])
-    clar["asked_ats"].append({"questions": questions,
-                              "at": datetime.now(timezone.utc).isoformat()})
-    d["clarification"] = clar
-    row.details = d
-    db.commit()
-
-    return questions if questions else _fallback_questions(understanding)
-
-
-def _fallback_questions(understanding: dict) -> list[str]:
-    """Non-LLM fallback when the key is missing: derived strictly from gaps."""
-    missing = understanding.get("missing_information") or []
-    if missing:
-        return missing[:5]
-    return ["Do you have an assignment PDF, Word document, image, or other project instructions?"]
+    questions = []
+    if not has_topic:
+        questions.append(f"What is the {subject} about?")
+    if not has_deadline:
+        questions.append(f"What is the deadline for the {subject}?")
+    if not has_group:
+        questions.append(f"Is the {subject} individual or group?")
+    if not has_format:
+        questions.append(f"What is the submission format for the {subject}?")
+    if not has_doc:
+        questions.append(f"Has the {subject} assignment file been shared?")
+    return questions
 
 
 # ----------------------------------------------------------- student answers
@@ -535,11 +606,18 @@ def consume_answer(db, user_id: int, row, answer: str, group: bool = False) -> d
     # full re-analysis now includes the new answer as a source
     new_understanding = analyze_assignment(db, user_id, row, student_answer=answer)
 
+    # Generate the ACTUAL complete answer for the project, grounded in the reply
+    # + course RAG + any attached document, and store it (shown in the AI Answer
+    # box). This runs whenever a relevant group reply arrives — not gated on a
+    # separate 'solve' step.
+    solution = _generate_full_answer(db, user_id, row)
+
     more_needed = new_understanding.get("understanding_status") == "insufficient_information"
     more_questions = generate_questions(db, user_id, row) if more_needed else []
 
     return {
         "summary": new_understanding.get("summary") or updated_summary,
+        "solution": solution,
         "understanding": new_understanding,
         "more_information_needed": more_needed,
         "clarification_questions": more_questions,
@@ -581,16 +659,16 @@ def feed_document(db, user_id: int, row, filename: str, text: str) -> dict:
         log.warning("assignment doc RAG ingest failed user=%s: %s", user_id, exc)
 
     understanding = analyze_assignment(db, user_id, row, document_text=text)
+    # A fresh document usually carries the real project instructions — generate
+    # the complete answer now and store it (shown in the AI Answer box).
+    solution = _generate_full_answer(db, user_id, row)
     return {"understanding": understanding, "summary": understanding.get("summary", "")}
 
 
 # --------------------------------------------------- ask the group + answers
 
 _GROUP_ASK_TEXT = (
-    "Hi everyone — I'm trying to describe the project **{title}** "
-    "for **{course}** accurately. "
-    "Please reply to this message with what you know about the questions below.\n\n{questions}\n"
-    "_(Only answers relevant to this project are recorded.)_"
+    "{title} ({course}):\n\n{questions}"
 )
 
 _JUDGE_PROMPT = """You watch a university group chat. One of these assignments is
@@ -811,6 +889,14 @@ def handle_group_message(db, user_id: int, sender_name: str, text: str,
         consume_answer(db, user_id, row, extracted, group=True)
     except Exception as exc:  # noqa: BLE001
         log.warning("assignment answer consume failed user=%s: %s", user_id, exc)
+        # A failed analyze can leave the session in a rolled-back/poisoned state
+        # (e.g. transient SQLite "database is locked"). Recover the session so we
+        # can STILL record the reply in the dashboard box instead of dropping it.
+        try:
+            db.rollback()
+            db.refresh(row)
+        except Exception:  # noqa: BLE001
+            pass
 
     d = row.details or {}
     clar = d.get("clarification") or {}
@@ -899,6 +985,10 @@ def _fmt_understanding(u: dict) -> str:
     parts = [f"Summary: {u.get('summary', '')}"]
     if u.get("objective"):
         parts.append(f"Objective: {u['objective']}")
+    if (u.get("group_or_individual") or "").strip():
+        parts.append(f"Group/Individual: {u['group_or_individual']}")
+    if (u.get("submission_format") or "").strip():
+        parts.append(f"Submission format: {u['submission_format']}")
     for key, label in (
         ("tasks", "Tasks"),
         ("requirements", "Requirements"),

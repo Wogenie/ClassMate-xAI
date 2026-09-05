@@ -33,8 +33,6 @@ function Toggle({ checked, onChange, label }) {
 export default function Setup() {
   const [form, setForm] = useState({
     telegram_bot_token: '',
-    telegram_api_id: '',
-    telegram_api_hash: '',
     groq_api_key: '',
     target_chat: '',
     notifications_enabled: true,
@@ -54,8 +52,6 @@ export default function Setup() {
       const { data } = await api.get('/settings')
       setForm({
         telegram_bot_token: data.telegram_bot_token || '',
-        telegram_api_id: data.telegram_api_id || '',
-        telegram_api_hash: data.telegram_api_hash || '',
         groq_api_key: data.groq_api_key || '',
         target_chat: data.target_chat || '',
         notifications_enabled: data.notifications_enabled,
@@ -167,16 +163,6 @@ export default function Setup() {
               onChange={set('telegram_bot_token')}
               autoComplete="off"
             />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label">API ID (optional)</label>
-              <input className="input" placeholder="e.g. 123456" value={form.telegram_api_id} onChange={set('telegram_api_id')} />
-            </div>
-            <div>
-              <label className="label">API hash (optional)</label>
-              <input className="input font-mono text-xs" placeholder="hex hash" value={form.telegram_api_hash} onChange={set('telegram_api_hash')} />
-            </div>
           </div>
           <div>
             <label className="label">Target chat — group @username or numeric ID</label>
